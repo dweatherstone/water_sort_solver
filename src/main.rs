@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+pub mod game;
 pub mod repl;
 pub mod tube;
 
