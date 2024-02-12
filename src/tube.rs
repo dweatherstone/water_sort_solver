@@ -46,7 +46,7 @@ impl Tube {
         }
     }
 
-    pub fn validate_move_from(&self, a_move: &Move) -> bool {
+    pub fn is_valid_move_from(&self, a_move: &Move) -> bool {
         if self.tube_number != a_move.tube_from {
             return false;
         }
@@ -65,7 +65,7 @@ impl Tube {
         true
     }
 
-    pub fn validate_move_to(&self, a_move: &Move) -> bool {
+    pub fn is_valid_move_to(&self, a_move: &Move) -> bool {
         if self.tube_number != a_move.tube_to {
             return false;
         }
@@ -116,7 +116,7 @@ impl Tube {
         }
     }
 
-    fn get_top_colour(&self) -> Option<ColourPos> {
+    pub fn get_top_colour(&self) -> Option<ColourPos> {
         for (pos, colour) in self.contents.iter().enumerate() {
             if colour != &Colour::Empty {
                 return Some(ColourPos {
@@ -126,6 +126,15 @@ impl Tube {
             };
         }
         None
+    }
+
+    pub fn is_tube_all_same_contents(&self) -> bool {
+        let mut iter = self.contents.iter();
+        let first = iter.next();
+        iter.fold(first, |acc, item| {
+            acc.and_then(|stored| if stored == item { Some(stored) } else { None })
+        })
+        .is_some()
     }
 }
 
@@ -474,7 +483,7 @@ mod tests {
 
         for test in tests {
             let mut tube = Tube::from_string(test.0, 0);
-            let result = tube.validate_move_from(&test.1);
+            let result = tube.is_valid_move_from(&test.1);
             assert_eq!(
                 result, test.2,
                 "validate_move_from wrong result for {} from tube {}. Expected = {}, got = {}",
@@ -590,7 +599,7 @@ mod tests {
 
         for test in tests {
             let mut tube = Tube::from_string(test.0, 0);
-            let result = tube.validate_move_to(&test.1);
+            let result = tube.is_valid_move_to(&test.1);
             assert_eq!(
                 result, test.2,
                 "validate_move_to wrong result for {} from tube {}. Expected = {}, got = {}",

@@ -22,3 +22,5 @@ This project will (hopefully) comprise of various different phases:
 ## Current Bugs
 
 1. Tube number indexing should be stored as 0-based, but displayed as 1-based. This needs to be updated in tube.rs mainly and the tests need to be changed.
+2. Update REPL so that it has all the functionality already present in the backend.
+3. Add full integration tests as a separate file, with separate cargo config.

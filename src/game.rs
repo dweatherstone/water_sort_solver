@@ -1,4 +1,5 @@
 use core::num;
+use itertools::Itertools;
 use std::{collections::HashMap, fmt::Display, hint::unreachable_unchecked, iter::Map};
 
 use crate::tube::Tube;
@@ -36,6 +37,7 @@ impl Display for Colour {
     }
 }
 
+#[derive(Default)]
 pub struct Game {
     pub tubes: Vec<Tube>,
     pub moves: HashMap<usize, Move>,
@@ -43,7 +45,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(num_of_tubes: usize) -> Game {
+    pub fn init_tubes(&mut self, num_of_tubes: usize) {
         if num_of_tubes < 4 {
             panic!("Must have at least 4 tubes to play a valid game!");
         }
@@ -51,12 +53,7 @@ impl Game {
         for idx in 0..num_of_tubes {
             tubes.push(Tube::from_string(String::from(""), idx));
         }
-
-        Game {
-            tubes,
-            moves: HashMap::new(),
-            current_move: 0,
-        }
+        self.tubes = tubes;
     }
 
     pub fn init_tube_contents(&mut self, tube_num: usize, contents: String) {
@@ -66,7 +63,7 @@ impl Game {
     pub fn validate_move(&self, a_move: &Move) -> bool {
         let from_tube = &self.tubes[a_move.tube_from];
         let to_tube = &self.tubes[a_move.tube_to];
-        from_tube.validate_move_from(a_move) && to_tube.validate_move_to(a_move)
+        from_tube.is_valid_move_from(a_move) && to_tube.is_valid_move_to(a_move)
     }
 
     pub fn make_move(&mut self, a_move: &Move) {
@@ -77,6 +74,20 @@ impl Game {
         self.tubes[a_move.tube_to].pour_to(a_move);
         self.current_move += 1;
         self.moves.insert(self.current_move, *a_move);
+    }
+
+    pub fn is_game_complete(&self) -> bool {
+        self.tubes
+            .iter()
+            .all(|tube| tube.is_tube_all_same_contents())
+    }
+
+    pub fn get_all_moves_string(&self) -> String {
+        let mut all_moves = String::new();
+        for (move_num, a_move) in self.moves.iter().sorted_by_key(|x| x.0) {
+            all_moves.push_str(format!("{} : ({})\n", move_num, a_move).as_str());
+        }
+        all_moves
     }
 }
 
@@ -103,7 +114,10 @@ impl Display for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let out = format!(
             "{} -> {}: {} x {}",
-            self.tube_from, self.tube_to, self.colour, self.quantity
+            self.tube_from + 1,
+            self.tube_to + 1,
+            self.colour,
+            self.quantity
         );
 
         write!(f, "{}", out)
@@ -116,7 +130,8 @@ mod tests {
 
     #[test]
     fn test_init_game() {
-        let mut game = Game::new(4);
+        let mut game = Game::default();
+        game.init_tubes(4);
         game.init_tube_contents(0, String::from("red, blue, green, purple"));
         game.init_tube_contents(1, String::from("green, blue, red, red"));
 
@@ -243,7 +258,8 @@ mod tests {
             ),
         ];
         for test in tests {
-            let mut game = Game::new(num_of_tubes);
+            let mut game = Game::default();
+            game.init_tubes(num_of_tubes);
             for (idx, init_tube) in test.0.into_iter().enumerate() {
                 game.init_tube_contents(idx, init_tube);
             }
@@ -418,7 +434,8 @@ mod tests {
         ];
 
         for test in tests {
-            let mut game = Game::new(num_of_tubes);
+            let mut game = Game::default();
+            game.init_tubes(num_of_tubes);
             for (idx, init_tube) in test.0.into_iter().enumerate() {
                 game.init_tube_contents(idx, init_tube);
             }
@@ -439,6 +456,82 @@ mod tests {
                 Some(move1) => test_move(move1, &test.1),
                 None => panic!("Did not find move 1"),
             }
+        }
+    }
+
+    #[test]
+    fn test_is_game_complete() {
+        let tests = vec![
+            (
+                Game {
+                    tubes: vec![Tube {
+                        contents: vec![Colour::Red, Colour::Red, Colour::Red, Colour::Red],
+                        tube_number: 0,
+                    }],
+                    moves: HashMap::new(),
+                    current_move: 0,
+                },
+                true,
+            ),
+            (
+                Game {
+                    tubes: vec![Tube {
+                        contents: vec![Colour::Blue, Colour::Red, Colour::Red, Colour::Red],
+                        tube_number: 0,
+                    }],
+                    moves: HashMap::new(),
+                    current_move: 0,
+                },
+                false,
+            ),
+            (
+                Game {
+                    tubes: vec![Tube {
+                        contents: vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Empty],
+                        tube_number: 0,
+                    }],
+                    moves: HashMap::new(),
+                    current_move: 0,
+                },
+                true,
+            ),
+            (
+                Game {
+                    tubes: vec![Tube {
+                        contents: vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Red],
+                        tube_number: 0,
+                    }],
+                    moves: HashMap::new(),
+                    current_move: 0,
+                },
+                false,
+            ),
+            (
+                Game {
+                    tubes: vec![
+                        Tube {
+                            contents: vec![Colour::Blue, Colour::Red, Colour::Red, Colour::Red],
+                            tube_number: 0,
+                        },
+                        Tube {
+                            contents: vec![Colour::Blue, Colour::Blue, Colour::Blue, Colour::Blue],
+                            tube_number: 1,
+                        },
+                    ],
+                    moves: HashMap::new(),
+                    current_move: 0,
+                },
+                false,
+            ),
+        ];
+
+        for test in tests {
+            let result = test.0.is_game_complete();
+            assert_eq!(
+                result, test.1,
+                "Game complete check incorrect. Expected: {}, got = {}",
+                test.1, result
+            );
         }
     }
 
