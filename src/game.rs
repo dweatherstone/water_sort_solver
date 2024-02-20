@@ -1,47 +1,17 @@
-use core::num;
 use itertools::Itertools;
-use std::{collections::HashMap, fmt::Display, hint::unreachable_unchecked, iter::Map};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
-use crate::tube::Tube;
+use crate::{tube::Tube, TUBE_SIZE};
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Colour {
-    Empty,
-    Red,
-    Blue,
-    Green,
-    Purple,
-}
-
-impl Colour {
-    pub fn from_string(colour: &str) -> Colour {
-        match colour.trim().to_lowercase().as_str() {
-            "red" => Colour::Red,
-            "blue" => Colour::Blue,
-            "green" => Colour::Green,
-            "purple" => Colour::Purple,
-            _ => Colour::Empty,
-        }
-    }
-}
-
-impl Display for Colour {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Colour::Empty => write!(f, "Empty"),
-            Colour::Red => write!(f, "Red"),
-            Colour::Blue => write!(f, "Blue"),
-            Colour::Green => write!(f, "Green"),
-            Colour::Purple => write!(f, "Purple"),
-        }
-    }
-}
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Game {
     pub tubes: Vec<Tube>,
     pub moves: HashMap<usize, Move>,
     pub current_move: usize,
+    pub colours: HashSet<String>,
 }
 
 impl Game {
@@ -58,6 +28,34 @@ impl Game {
 
     pub fn init_tube_contents(&mut self, tube_num: usize, contents: String) {
         self.tubes[tube_num] = Tube::from_string(contents, tube_num);
+        let colours: HashSet<String> = self.tubes[tube_num]
+            .contents
+            .iter()
+            .filter_map(|x| x.clone())
+            .collect();
+        self.colours.extend(colours);
+    }
+
+    pub fn validate_setup(&self) -> bool {
+        if self.tubes.len() - 2 != self.colours.len() {
+            return false;
+        }
+        let mut colour_counts: HashMap<String, usize> = HashMap::new();
+        for tube in &self.tubes {
+            for col in &tube.contents {
+                if col.is_some() {
+                    let col = col.as_ref().unwrap();
+                    match colour_counts.get(col) {
+                        Some(count) => colour_counts.insert(col.clone(), count + 1),
+                        None => colour_counts.insert(col.clone(), 1),
+                    };
+                }
+            }
+        }
+
+        colour_counts
+            .values()
+            .all(|&expected| expected == TUBE_SIZE)
     }
 
     pub fn validate_move(&self, a_move: &Move) -> bool {
@@ -73,7 +71,7 @@ impl Game {
         self.tubes[a_move.tube_from].pour_from(a_move);
         self.tubes[a_move.tube_to].pour_to(a_move);
         self.current_move += 1;
-        self.moves.insert(self.current_move, *a_move);
+        self.moves.insert(self.current_move, a_move.clone());
     }
 
     pub fn is_game_complete(&self) -> bool {
@@ -89,6 +87,52 @@ impl Game {
         }
         all_moves
     }
+
+    pub fn print_colour(&self, requested_colour: &str) -> String {
+        let mut requested_colour = requested_colour.to_string();
+        match self.colours.contains(&requested_colour) {
+            true => requested_colour.remove(0).to_uppercase().to_string() + &requested_colour,
+            false => "Empty".to_string(),
+        }
+    }
+
+    pub fn is_num_of_colours_valid(&self) -> bool {
+        self.colours.len() == self.tubes.len() - 2
+    }
+
+    pub fn get_number_of_blocks(&self) -> usize {
+        let mut blocks = 0;
+        for tube in self.tubes.iter() {
+            let mut current_colour: Option<String> = None;
+            for segment in tube.contents.iter() {
+                match segment {
+                    Some(col) => {
+                        if current_colour.is_none() {
+                            current_colour = Some(col.clone());
+                            continue;
+                        } else if col == &current_colour.clone().unwrap() {
+                            continue;
+                        } else {
+                            blocks += 1;
+                            current_colour = Some(col.clone());
+                        }
+                    }
+                    None => {
+                        if current_colour.is_none() {
+                            continue;
+                        } else {
+                            current_colour = None;
+                            blocks += 1;
+                        }
+                    }
+                }
+            }
+            if current_colour.is_some() {
+                blocks += 1;
+            }
+        }
+        blocks
+    }
 }
 
 impl Display for Game {
@@ -102,11 +146,11 @@ impl Display for Game {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Move {
     pub tube_from: usize,
     pub tube_to: usize,
-    pub colour: Colour,
+    pub colour: String,
     pub quantity: usize,
 }
 
@@ -132,18 +176,24 @@ mod tests {
     fn test_init_game() {
         let mut game = Game::default();
         game.init_tubes(4);
-        game.init_tube_contents(0, String::from("red, blue, green, purple"));
-        game.init_tube_contents(1, String::from("green, blue, red, red"));
+        game.init_tube_contents(0, String::from("red, blue, green, red"));
+        game.init_tube_contents(1, String::from("green, blue, red, purple"));
 
         let expected = Game {
             tubes: vec![
-                Tube::from_string(String::from("red, blue, green, purple"), 0),
-                Tube::from_string(String::from("green, blue, red, red"), 1),
-                Tube::from_colour_vec(vec![Colour::Empty; 4], 2),
-                Tube::from_colour_vec(vec![Colour::Empty; 4], 3),
+                Tube::from_string(String::from("red, blue, green, red"), 0),
+                Tube::from_string(String::from("green, blue, red, purple"), 1),
+                Tube::from_string_vec(vec![None; 4], 2),
+                Tube::from_string_vec(vec![None; 4], 3),
             ],
             moves: HashMap::new(),
             current_move: 0,
+            colours: HashSet::from([
+                "red".to_string(),
+                "green".to_string(),
+                "blue".to_string(),
+                "purple".to_string(),
+            ]),
         };
         test_all_tubes(&game.tubes, &expected.tubes);
         assert_eq!(
@@ -152,6 +202,69 @@ mod tests {
             0, game.current_move
         );
         assert!(game.moves.is_empty(), "moves are not empty");
+        assert_eq!(
+            game.colours, expected.colours,
+            "Colours hashset is not the same. Expected = {:?}, got = {:?}",
+            expected.colours, game.colours
+        );
+    }
+
+    #[test]
+    fn test_post_setup_validation() {
+        let num_of_tubes: usize = 4;
+        let tests: Vec<(Vec<String>, bool)> = vec![
+            (
+                vec![
+                    String::from("red, red, red, red"),
+                    String::from("blue, blue, blue, blue"),
+                ],
+                true,
+            ),
+            (
+                vec![
+                    String::from("red, red, red, red"),
+                    String::from("blue, blue, blue, red"),
+                ],
+                false,
+            ),
+            (
+                vec![
+                    String::from("red, red, red, red"),
+                    String::from("blue, blue, blue, blue"),
+                    String::from("green"),
+                ],
+                false,
+            ),
+            (
+                vec![
+                    String::from("red, blue"),
+                    String::from("red, blue"),
+                    String::from("red, blue"),
+                    String::from("blue, red"),
+                ],
+                true,
+            ),
+            (
+                vec![
+                    String::from("red, red, blue"),
+                    String::from("blue, red, red, blue"),
+                ],
+                false,
+            ),
+        ];
+        for test in tests {
+            let mut game = Game::default();
+            game.init_tubes(num_of_tubes);
+            for (idx, init_tube) in test.0.into_iter().enumerate() {
+                game.init_tube_contents(idx, init_tube);
+            }
+            let val_res = game.validate_setup();
+            assert_eq!(
+                val_res, test.1,
+                "game setup validate incorrect. Expected: {}, got: {}",
+                test.1, val_res
+            );
+        }
     }
 
     #[test]
@@ -167,7 +280,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 false,
@@ -181,7 +294,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 2,
-                    colour: Colour::Blue,
+                    colour: "blue".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -195,7 +308,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 2,
-                    colour: Colour::Blue,
+                    colour: "blue".to_string(),
                     quantity: 3,
                 },
                 false,
@@ -209,7 +322,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 2,
-                    colour: Colour::Blue,
+                    colour: "blue".to_string(),
                     quantity: 2,
                 },
                 false,
@@ -223,7 +336,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 3,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -237,7 +350,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 3,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 true,
@@ -251,7 +364,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 3,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 3,
                 },
                 false,
@@ -286,26 +399,41 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 2,
-                    colour: Colour::Blue,
+                    colour: "blue".to_string(),
                     quantity: 1,
                 },
                 Game {
                     tubes: vec![
                         Tube {
                             tube_number: 0,
-                            contents: vec![Colour::Empty, Colour::Red, Colour::Blue, Colour::Red],
+                            contents: vec![
+                                None,
+                                Some("red".to_string()),
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                            ],
                         },
                         Tube {
                             tube_number: 1,
-                            contents: vec![Colour::Empty, Colour::Empty, Colour::Red, Colour::Red],
+                            contents: vec![
+                                None,
+                                None,
+                                Some("red".to_string()),
+                                Some("red".to_string()),
+                            ],
                         },
                         Tube {
                             tube_number: 2,
-                            contents: vec![Colour::Empty, Colour::Blue, Colour::Blue, Colour::Blue],
+                            contents: vec![
+                                None,
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
+                            ],
                         },
                         Tube {
                             tube_number: 3,
-                            contents: vec![Colour::Empty; 4],
+                            contents: vec![None; 4],
                         },
                     ],
                     moves: HashMap::from([(
@@ -313,11 +441,15 @@ mod tests {
                         Move {
                             tube_from: 0,
                             tube_to: 2,
-                            colour: Colour::Blue,
+                            colour: "blue".to_string(),
                             quantity: 1,
                         },
                     )]),
                     current_move: 1,
+                    colours: vec!["red".to_string(), "blue".to_string()]
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                 },
             ),
             (
@@ -329,41 +461,36 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 3,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Game {
                     tubes: vec![
                         Tube {
                             tube_number: 0,
-                            contents: vec![Colour::Blue, Colour::Red, Colour::Blue, Colour::Red],
+                            contents: vec![
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                            ],
                         },
                         Tube {
                             tube_number: 1,
-                            contents: vec![
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Red,
-                            ],
+                            contents: vec![None, None, None, Some("red".to_string())],
                         },
                         Tube {
                             tube_number: 2,
                             contents: vec![
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Blue,
-                                Colour::Blue,
+                                None,
+                                None,
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
                             ],
                         },
                         Tube {
                             tube_number: 3,
-                            contents: vec![
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Red,
-                            ],
+                            contents: vec![None, None, None, Some("red".to_string())],
                         },
                     ],
                     moves: HashMap::from([(
@@ -371,11 +498,15 @@ mod tests {
                         Move {
                             tube_from: 1,
                             tube_to: 3,
-                            colour: Colour::Red,
+                            colour: "red".to_string(),
                             quantity: 1,
                         },
                     )]),
                     current_move: 1,
+                    colours: vec!["red".to_string(), "blue".to_string()]
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                 },
             ),
             (
@@ -387,36 +518,41 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 3,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 Game {
                     tubes: vec![
                         Tube {
                             tube_number: 0,
-                            contents: vec![Colour::Blue, Colour::Red, Colour::Blue, Colour::Red],
+                            contents: vec![
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                            ],
                         },
                         Tube {
                             tube_number: 1,
-                            contents: vec![
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Empty,
-                            ],
+                            contents: vec![None, None, None, None],
                         },
                         Tube {
                             tube_number: 2,
                             contents: vec![
-                                Colour::Empty,
-                                Colour::Empty,
-                                Colour::Blue,
-                                Colour::Blue,
+                                None,
+                                None,
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
                             ],
                         },
                         Tube {
                             tube_number: 3,
-                            contents: vec![Colour::Empty, Colour::Empty, Colour::Red, Colour::Red],
+                            contents: vec![
+                                None,
+                                None,
+                                Some("red".to_string()),
+                                Some("red".to_string()),
+                            ],
                         },
                     ],
                     moves: HashMap::from([(
@@ -424,11 +560,15 @@ mod tests {
                         Move {
                             tube_from: 1,
                             tube_to: 3,
-                            colour: Colour::Red,
+                            colour: "red".to_string(),
                             quantity: 2,
                         },
                     )]),
                     current_move: 1,
+                    colours: vec!["red".to_string(), "blue".to_string()]
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                 },
             ),
         ];
@@ -465,44 +605,58 @@ mod tests {
             (
                 Game {
                     tubes: vec![Tube {
-                        contents: vec![Colour::Red, Colour::Red, Colour::Red, Colour::Red],
+                        contents: vec![
+                            Some("red".to_string()),
+                            Some("red".to_string()),
+                            Some("red".to_string()),
+                            Some("red".to_string()),
+                        ],
                         tube_number: 0,
                     }],
                     moves: HashMap::new(),
                     current_move: 0,
+                    colours: HashSet::from(["red".to_string()]),
                 },
                 true,
             ),
             (
                 Game {
                     tubes: vec![Tube {
-                        contents: vec![Colour::Blue, Colour::Red, Colour::Red, Colour::Red],
+                        contents: vec![
+                            Some("blue".to_string()),
+                            Some("red".to_string()),
+                            Some("red".to_string()),
+                            Some("red".to_string()),
+                        ],
                         tube_number: 0,
                     }],
                     moves: HashMap::new(),
                     current_move: 0,
+                    colours: HashSet::from(["red".to_string(), "blue".to_string()]),
                 },
                 false,
             ),
             (
                 Game {
                     tubes: vec![Tube {
-                        contents: vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Empty],
+                        contents: vec![None, None, None, None],
                         tube_number: 0,
                     }],
                     moves: HashMap::new(),
                     current_move: 0,
+                    colours: HashSet::new(),
                 },
                 true,
             ),
             (
                 Game {
                     tubes: vec![Tube {
-                        contents: vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Red],
+                        contents: vec![None, None, None, Some("red".to_string())],
                         tube_number: 0,
                     }],
                     moves: HashMap::new(),
                     current_move: 0,
+                    colours: HashSet::from(["red".to_string()]),
                 },
                 false,
             ),
@@ -510,16 +664,27 @@ mod tests {
                 Game {
                     tubes: vec![
                         Tube {
-                            contents: vec![Colour::Blue, Colour::Red, Colour::Red, Colour::Red],
+                            contents: vec![
+                                Some("blue".to_string()),
+                                Some("red".to_string()),
+                                Some("red".to_string()),
+                                Some("red".to_string()),
+                            ],
                             tube_number: 0,
                         },
                         Tube {
-                            contents: vec![Colour::Blue, Colour::Blue, Colour::Blue, Colour::Blue],
+                            contents: vec![
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
+                                Some("blue".to_string()),
+                            ],
                             tube_number: 1,
                         },
                     ],
                     moves: HashMap::new(),
                     current_move: 0,
+                    colours: HashSet::from(["red".to_string(), "blue".to_string()]),
                 },
                 false,
             ),
@@ -535,7 +700,7 @@ mod tests {
         }
     }
 
-    fn test_all_tubes(result: &Vec<Tube>, expected: &Vec<Tube>) {
+    fn test_all_tubes(result: &[Tube], expected: &[Tube]) {
         assert_eq!(
             result.len(),
             expected.len(),

@@ -1,32 +1,38 @@
 use std::fmt::Display;
 
-use crate::{
-    game::{Colour, Move},
-    TUBE_SIZE,
-};
+use crate::{game::Move, TUBE_SIZE};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ColourPos {
-    pub colour: Colour,
+    pub colour: String,
     pub pos: usize,
+    pub block_size: usize,
 }
 
+#[derive(Clone)]
 pub struct Tube {
-    pub contents: Vec<Colour>,
+    pub contents: Vec<Option<String>>,
     pub tube_number: usize,
 }
 
 impl Tube {
     pub fn from_string(string_colours: String, tube_number: usize) -> Tube {
         let mut colours = Vec::with_capacity(TUBE_SIZE);
-        let vec_string_colours: Vec<&str> = string_colours.split(',').collect();
+        let vec_string_colours: Vec<String> = string_colours
+            .split(',')
+            .map(|x| x.trim().to_lowercase())
+            .collect();
         // Add empty cells where there is no string colour supplied
         for _ in vec_string_colours.len()..TUBE_SIZE {
-            colours.push(Colour::Empty);
+            colours.push(None);
         }
         // Add the colours from the string. Note that any unmatched strings will get set as Empty.
         for str_col in vec_string_colours {
-            colours.push(Colour::from_string(str_col));
+            if &str_col == "empty" || str_col.is_empty() {
+                colours.push(None);
+            } else {
+                colours.push(Some(str_col));
+            }
         }
 
         Tube {
@@ -35,13 +41,23 @@ impl Tube {
         }
     }
 
-    pub fn from_string_vec(colours: Vec<String>) -> Tube {
-        unimplemented!()
-    }
-
-    pub fn from_colour_vec(colours: Vec<Colour>, tube_number: usize) -> Tube {
+    pub fn from_string_vec(colours: Vec<Option<String>>, tube_number: usize) -> Tube {
+        let mut contents = Vec::new();
+        for colour in colours.iter() {
+            match colour {
+                None => contents.push(None),
+                Some(colour) => {
+                    let colour = colour.trim().to_lowercase();
+                    if colour == *"empty" {
+                        contents.push(None);
+                    } else {
+                        contents.push(Some(colour));
+                    }
+                }
+            }
+        }
         Tube {
-            contents: colours,
+            contents,
             tube_number,
         }
     }
@@ -58,8 +74,13 @@ impl Tube {
             return false;
         }
         for idx in start..start + a_move.quantity {
-            if self.contents[idx] != a_move.colour {
-                return false;
+            match &self.contents[idx] {
+                Some(col) => {
+                    if col != &a_move.colour {
+                        return false;
+                    }
+                }
+                None => return false,
             }
         }
         true
@@ -71,7 +92,7 @@ impl Tube {
         }
         let (top_colour, start) = match self.get_top_colour() {
             Some(top_col) => (top_col.colour, top_col.pos),
-            None => (a_move.colour, TUBE_SIZE),
+            None => (a_move.colour.clone(), TUBE_SIZE),
         };
         if (start as i32 - a_move.quantity as i32) < 0 {
             return false;
@@ -90,13 +111,16 @@ impl Tube {
             if qty == 0 {
                 break;
             }
-            if cell == col {
-                *cell = Colour::Empty;
-                qty -= 1;
-            } else if cell == &Colour::Empty {
-                continue;
-            } else {
-                break;
+            match cell {
+                Some(c) => {
+                    if c == col {
+                        *cell = None;
+                        qty -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                None => continue,
             }
         }
     }
@@ -104,7 +128,7 @@ impl Tube {
     pub fn pour_to(&mut self, a_move: &Move) {
         let top_col = self.get_top_colour();
         let start = match top_col {
-            Some(the_top) => the_top.pos - a_move.quantity,
+            Some(ref the_top) => the_top.pos - a_move.quantity,
             None => TUBE_SIZE - a_move.quantity,
         };
         let end = match top_col {
@@ -112,18 +136,22 @@ impl Tube {
             None => TUBE_SIZE,
         };
         for idx in start..end {
-            self.contents[idx] = a_move.colour;
+            self.contents[idx] = Some(a_move.colour.clone());
         }
     }
 
     pub fn get_top_colour(&self) -> Option<ColourPos> {
         for (pos, colour) in self.contents.iter().enumerate() {
-            if colour != &Colour::Empty {
-                return Some(ColourPos {
-                    colour: *colour,
-                    pos,
-                });
-            };
+            match colour {
+                Some(col) => {
+                    return Some(ColourPos {
+                        colour: col.to_string(),
+                        pos,
+                        block_size: self.get_block_size(pos, col),
+                    })
+                }
+                None => {}
+            }
         }
         None
     }
@@ -136,6 +164,24 @@ impl Tube {
         })
         .is_some()
     }
+
+    fn get_block_size(&self, start: usize, colour: &String) -> usize {
+        let mut block_size = 0;
+        for idx in start..self.contents.len() {
+            match &self.contents[idx] {
+                Some(col) => {
+                    if col == colour {
+                        block_size += 1;
+                    } else {
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
+
+        block_size
+    }
 }
 
 impl Display for Tube {
@@ -144,7 +190,11 @@ impl Display for Tube {
         let mut colours = Vec::new();
 
         for colour in self.contents.iter() {
-            colours.push(format!("{}", colour));
+            let col = match colour {
+                Some(c) => String::from(c),
+                None => String::from("empty"),
+            };
+            colours.push(col);
         }
 
         out.push_str(format!("{}: (", self.tube_number + 1).as_str());
@@ -165,43 +215,75 @@ mod tests {
             (
                 String::from("red, red, blue, green"),
                 Tube {
-                    contents: vec![Colour::Red, Colour::Red, Colour::Blue, Colour::Green],
+                    contents: vec![
+                        Some("red".to_string()),
+                        Some("red".to_string()),
+                        Some("blue".to_string()),
+                        Some("green".to_string()),
+                    ],
                     tube_number: 1,
                 },
             ),
             (
                 String::from("empty, red, blue, green"),
                 Tube {
-                    contents: vec![Colour::Empty, Colour::Red, Colour::Blue, Colour::Green],
+                    contents: vec![
+                        None,
+                        Some("red".to_string()),
+                        Some("blue".to_string()),
+                        Some("green".to_string()),
+                    ],
                     tube_number: 2,
                 },
             ),
             (
                 String::from("red, blue, green"),
                 Tube {
-                    contents: vec![Colour::Empty, Colour::Red, Colour::Blue, Colour::Green],
+                    contents: vec![
+                        None,
+                        Some("red".to_string()),
+                        Some("blue".to_string()),
+                        Some("green".to_string()),
+                    ],
                     tube_number: 3,
                 },
             ),
             (
                 String::from("blue, green"),
                 Tube {
-                    contents: vec![Colour::Empty, Colour::Empty, Colour::Blue, Colour::Green],
+                    contents: vec![
+                        None,
+                        None,
+                        Some("blue".to_string()),
+                        Some("green".to_string()),
+                    ],
                     tube_number: 4,
-                },
-            ),
-            (
-                String::from("blue, green, unknown"),
-                Tube {
-                    contents: vec![Colour::Empty, Colour::Blue, Colour::Green, Colour::Empty],
-                    tube_number: 5,
                 },
             ),
             (
                 String::from("RED, rEd, Blue    ,    Green      "),
                 Tube {
-                    contents: vec![Colour::Red, Colour::Red, Colour::Blue, Colour::Green],
+                    contents: vec![
+                        Some("red".to_string()),
+                        Some("red".to_string()),
+                        Some("blue".to_string()),
+                        Some("green".to_string()),
+                    ],
+                    tube_number: 5,
+                },
+            ),
+            (
+                String::from(""),
+                Tube {
+                    contents: vec![None; 4],
                     tube_number: 6,
+                },
+            ),
+            (
+                String::from("         ,      ,   ,"),
+                Tube {
+                    contents: vec![None; 4],
+                    tube_number: 7,
                 },
             ),
         ];
@@ -216,29 +298,49 @@ mod tests {
     fn test_colour_vec_setup() {
         let tests = vec![
             (
-                vec![Colour::Red, Colour::Green, Colour::Blue, Colour::Purple],
+                vec![
+                    Some("red".to_string()),
+                    Some("green".to_string()),
+                    Some("blue".to_string()),
+                    Some("purple".to_string()),
+                ],
                 Tube {
-                    contents: vec![Colour::Red, Colour::Green, Colour::Blue, Colour::Purple],
+                    contents: vec![
+                        Some("red".to_string()),
+                        Some("green".to_string()),
+                        Some("blue".to_string()),
+                        Some("purple".to_string()),
+                    ],
                     tube_number: 1,
                 },
             ),
             (
-                vec![Colour::Empty, Colour::Empty, Colour::Blue, Colour::Purple],
+                vec![
+                    None,
+                    None,
+                    Some("blue".to_string()),
+                    Some("purple".to_string()),
+                ],
                 Tube {
-                    contents: vec![Colour::Empty, Colour::Empty, Colour::Blue, Colour::Purple],
+                    contents: vec![
+                        None,
+                        None,
+                        Some("blue".to_string()),
+                        Some("purple".to_string()),
+                    ],
                     tube_number: 2,
                 },
             ),
             (
-                vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Empty],
+                vec![None, None, None, None],
                 Tube {
-                    contents: vec![Colour::Empty, Colour::Empty, Colour::Empty, Colour::Empty],
+                    contents: vec![None, None, None, None],
                     tube_number: 3,
                 },
             ),
         ];
         for (idx, test) in tests.into_iter().enumerate() {
-            let result = Tube::from_colour_vec(test.0, idx + 1);
+            let result = Tube::from_string_vec(test.0, idx + 1);
             test_tube(&result, &test.1);
         }
     }
@@ -249,22 +351,25 @@ mod tests {
             (
                 Tube::from_string(String::from("red, red, blue, green"), 1),
                 Some(ColourPos {
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     pos: 0,
+                    block_size: 2,
                 }),
             ),
             (
                 Tube::from_string(String::from("empty, red, blue, green"), 2),
                 Some(ColourPos {
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     pos: 1,
+                    block_size: 1,
                 }),
             ),
             (
                 Tube::from_string(String::from("red, blue, green"), 3),
                 Some(ColourPos {
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     pos: 1,
+                    block_size: 1,
                 }),
             ),
             (Tube::from_string(String::from(""), 4), None),
@@ -290,6 +395,11 @@ mod tests {
                         "position of ColourPos does not match. Expected = {}, got = {}",
                         expected.pos, col_pos.pos
                     );
+                    assert_eq!(
+                        col_pos.block_size, expected.block_size,
+                        "block_size of ColourPos does not match. Expected = {}, got = {}",
+                        expected.block_size, col_pos.block_size
+                    );
                 }
                 None => {
                     assert!(
@@ -310,7 +420,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Tube::from_string(String::from("purple, blue, green"), 0),
@@ -320,7 +430,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Tube::from_string(String::from("red, blue, green"), 1),
@@ -330,7 +440,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 Tube::from_string(String::from("blue, green"), 2),
@@ -340,7 +450,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 3,
                 },
                 Tube::from_string(String::from(""), 3),
@@ -350,7 +460,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 Tube::from_string(String::from("empty, empty, empty, blue"), 4),
@@ -372,7 +482,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Tube::from_string(String::from("empty, empty, empty, red"), 0),
@@ -382,7 +492,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Tube::from_string(String::from("empty, empty, red, red"), 1),
@@ -392,7 +502,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 Tube::from_string(String::from("empty, red, blue, red"), 2),
@@ -402,7 +512,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 Tube::from_string(String::from("red, red, blue, red"), 3),
@@ -424,7 +534,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -434,7 +544,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 false,
@@ -444,7 +554,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 false,
@@ -454,7 +564,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -464,7 +574,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -474,7 +584,7 @@ mod tests {
                 Move {
                     tube_from: 0,
                     tube_to: 1,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 4,
                 },
                 true,
@@ -482,7 +592,7 @@ mod tests {
         ];
 
         for test in tests {
-            let mut tube = Tube::from_string(test.0, 0);
+            let tube = Tube::from_string(test.0, 0);
             let result = tube.is_valid_move_from(&test.1);
             assert_eq!(
                 result, test.2,
@@ -500,7 +610,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -510,7 +620,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 false,
@@ -520,7 +630,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 true,
@@ -530,7 +640,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 3,
                 },
                 true,
@@ -540,7 +650,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 4,
                 },
                 false,
@@ -550,7 +660,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 true,
@@ -560,7 +670,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 false,
@@ -570,7 +680,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 4,
                 },
                 false,
@@ -580,7 +690,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 2,
                 },
                 false,
@@ -590,7 +700,7 @@ mod tests {
                 Move {
                     tube_from: 1,
                     tube_to: 0,
-                    colour: Colour::Red,
+                    colour: "red".to_string(),
                     quantity: 1,
                 },
                 false,
@@ -598,7 +708,7 @@ mod tests {
         ];
 
         for test in tests {
-            let mut tube = Tube::from_string(test.0, 0);
+            let tube = Tube::from_string(test.0, 0);
             let result = tube.is_valid_move_to(&test.1);
             assert_eq!(
                 result, test.2,

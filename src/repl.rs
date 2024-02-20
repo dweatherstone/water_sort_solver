@@ -1,7 +1,7 @@
 use std::io::{Stdin, Stdout, Write};
 
 use crate::{
-    game::{Colour, Game, Move},
+    game::{Game, Move},
     TUBE_SIZE,
 };
 
@@ -23,7 +23,7 @@ impl Repl {
         }
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self) -> bool {
         loop {
             write!(self.stdout, "Enter the total number of tubes in the game: ")
                 .expect("error writing prompt string");
@@ -31,13 +31,15 @@ impl Repl {
             let mut input = String::new();
             if let Err(e) = self.stdin.read_line(&mut input) {
                 writeln!(self.stdout, "Error: {e}").expect(ERR_MSG_WRITE_ERR_MSG);
-                return;
+                return false;
             }
             let num_of_tubes = match input.trim().parse::<usize>() {
                 Ok(tube_num) => tube_num,
                 Err(_) => {
-                    writeln!(self.stdout, "Unable to parse {} to a number", input);
-                    continue;
+                    match writeln!(self.stdout, "Unable to parse {} to a number", input) {
+                        Err(_) => return false,
+                        Ok(_) => continue,
+                    };
                 }
             };
             self.current_state.init_tubes(num_of_tubes);
@@ -48,24 +50,40 @@ impl Repl {
                 let mut input = String::new();
                 if let Err(e) = self.stdin.read_line(&mut input) {
                     writeln!(self.stdout, "Error: {e}").expect(ERR_MSG_WRITE_ERR_MSG);
-                    return;
+                    return false;
                 }
                 self.current_state.init_tube_contents(idx, input);
             }
             break;
         }
-        writeln!(self.stdout, "Starting state of the game:");
-        writeln!(self.stdout, "{}", self.current_state);
-    }
+        if !self.current_state.validate_setup() {
+            match writeln!(
+                self.stdout,
+                "Error: Initial setup is incorrect. Please try again."
+            ) {
+                Ok(_) => return false,
+                Err(_) => return false,
+            };
+        }
 
+        match writeln!(self.stdout, "Starting state of the game:") {
+            Ok(_) => {}
+            Err(_) => return false,
+        };
+        match writeln!(self.stdout, "{}", self.current_state) {
+            Ok(_) => {}
+            Err(_) => return false,
+        };
+        true
+    }
     pub fn play(&mut self) {
         let mut is_complete = false;
         while !is_complete {
             write!(
-                self.stdout,
-                "Enter a move in the format (without quotes): \"<tube_from> <tube_to> <quantity>\": "
-            )
-            .expect("error writing move prompt string");
+                    self.stdout,
+                    "Enter a move in the format (without quotes): \"<tube_from> <tube_to> <quantity>\": "
+                )
+                .expect("error writing move prompt string");
             self.stdout.flush().expect(FLUSH_ERR_MSG);
             let mut input = String::new();
             if let Err(e) = self.stdin.read_line(&mut input) {
@@ -86,8 +104,10 @@ impl Repl {
             }
             let move_input = match MoveInput::parse_move(input, &self.current_state) {
                 Err(err) => {
-                    writeln!(self.stdout, "Unable to parse move: {}", err);
-                    continue;
+                    match writeln!(self.stdout, "Unable to parse move: {}", err) {
+                        Ok(_) => continue,
+                        Err(_) => return,
+                    };
                 }
                 Ok(move_in) => move_in,
             };
@@ -98,17 +118,24 @@ impl Repl {
             {
                 Some(tube) => tube.to_owned(),
                 None => {
-                    writeln!(
+                    match writeln!(
                         self.stdout,
                         "Error: Unable to find 'from tube' {}",
                         move_input.tube_from - 1
-                    );
-                    continue;
+                    ) {
+                        Ok(_) => continue,
+                        Err(_) => return,
+                    };
                 }
             };
             let from_colour = match tube_from.get_top_colour() {
                 Some(col) => col.colour,
-                None => Colour::Empty,
+                None => {
+                    match writeln!(self.stdout, "Move is invalid") {
+                        Ok(_) => continue,
+                        Err(_) => return,
+                    };
+                }
             };
             let this_move = Move {
                 tube_from: (move_input.tube_from - 1) as usize,
@@ -118,19 +145,33 @@ impl Repl {
             };
             if self.current_state.validate_move(&this_move) {
                 self.current_state.make_move(&this_move);
-                writeln!(self.stdout, "After move: {}:", &this_move);
-                writeln!(self.stdout, "{}", self.current_state);
+                match writeln!(self.stdout, "After move: {}:", &this_move) {
+                    Ok(_) => {}
+                    Err(_) => return,
+                };
+                match writeln!(self.stdout, "{}", self.current_state) {
+                    Ok(_) => {}
+                    Err(_) => return,
+                };
             } else {
-                writeln!(self.stdout, "Move is invalid");
-                continue;
+                match writeln!(self.stdout, "Move is invalid") {
+                    Ok(_) => continue,
+                    Err(_) => return,
+                };
             }
             if self.current_state.is_game_complete() {
                 is_complete = true;
-                writeln!(
+                match writeln!(
                     self.stdout,
                     "Congratulations! You have completed the game! The moves were:"
-                );
-                writeln!(self.stdout, "{}", self.current_state.get_all_moves_string());
+                ) {
+                    Ok(_) => {}
+                    Err(_) => return,
+                };
+                match writeln!(self.stdout, "{}", self.current_state.get_all_moves_string()) {
+                    Ok(_) => {}
+                    Err(_) => return,
+                };
             }
         }
     }
@@ -153,15 +194,15 @@ impl MoveInput {
         }
         let tube_from = match string_parts[0].parse::<i32>() {
             Ok(entry) => entry,
-            Err(e) => return Err("Expected an integer for the 'from tube' value".to_string()),
+            Err(_) => return Err("Expected an integer for the 'from tube' value".to_string()),
         };
         let tube_to = match string_parts[1].parse::<i32>() {
             Ok(entry) => entry,
-            Err(e) => return Err("Expected an integer for the 'to tube' value".to_string()),
+            Err(_) => return Err("Expected an integer for the 'to tube' value".to_string()),
         };
         let quantity = match string_parts[2].parse::<i32>() {
             Ok(entry) => entry,
-            Err(e) => return Err("Expected an integer for the 'quantity' value".to_string()),
+            Err(_) => return Err("Expected an integer for the 'quantity' value".to_string()),
         };
 
         if tube_from < 1 || tube_from > game.tubes.len() as i32 {

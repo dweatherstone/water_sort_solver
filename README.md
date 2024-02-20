@@ -24,3 +24,10 @@ This project will (hopefully) comprise of various different phases:
 1. Tube number indexing should be stored as 0-based, but displayed as 1-based. This needs to be updated in tube.rs mainly and the tests need to be changed.
 2. Update REPL so that it has all the functionality already present in the backend.
 3. Add full integration tests as a separate file, with separate cargo config.
+
+## Immidiate next steps
+
+1. Start working on the solver part of the project. This will be the most challenging, but hopefully the most fun part of the project.
+2. This should be attempted by looking at various different solving techniques, possibly starting with a brute force approach.
+3. Need to work through the pseudo-code algorithm. It might be good to start with getting the possible moves from the given position.
+4. Helper functions and associated tests started to be written. Need to actually write the main `solve` method now!!
